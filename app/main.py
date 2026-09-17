@@ -160,7 +160,7 @@ async def process_ai_request_inner(
     author = get_author(source)
     channel = get_channel(source)
 
-    user_id = str(author.id)
+    user_id = author.id
     channel_id = str(channel.id) if channel else None
 
     username = getattr(author, "display_name", None)
