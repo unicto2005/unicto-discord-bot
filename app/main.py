@@ -62,6 +62,13 @@ gemini_router = GeminiRouter(
 async def ask_nova(prompt: str, conversation_context: str = ""):
     """
     Send a request to Gemini through the NOVA model router.
+
+    GeminiRouter may return either:
+        response
+    or:
+        (response, model_name)
+
+    The caller handles both formats safely.
     """
 
     return await gemini_router.ask(
@@ -106,6 +113,9 @@ async def send_reply(source, content: str):
 
     if not content:
         content = "I couldn't generate a response."
+
+    # Make absolutely sure Discord receives text.
+    content = str(content)
 
     chunks = [
         content[i:i + 2000]
@@ -160,7 +170,11 @@ async def process_ai_request_inner(
     author = get_author(source)
     channel = get_channel(source)
 
+    # IMPORTANT:
+    # Keep Discord IDs as integers because the PostgreSQL
+    # nova_usage.discord_user_id column is BIGINT.
     user_id = author.id
+
     channel_id = str(channel.id) if channel else None
 
     username = getattr(author, "display_name", None)
@@ -223,7 +237,7 @@ async def process_ai_request_inner(
     # --------------------------------------------------------
 
     try:
-        response = await ask_nova(
+        result = await ask_nova(
             prompt=prompt,
             conversation_context=conversation_context,
         )
@@ -238,7 +252,37 @@ async def process_ai_request_inner(
         return
 
     # --------------------------------------------------------
-    # Normalize response
+    # Normalize Gemini response
+    # --------------------------------------------------------
+
+    model_name = None
+
+    if result is None:
+
+        response = "I couldn't generate a response right now."
+
+    elif isinstance(result, tuple):
+
+        # GeminiRouter currently returns:
+        #
+        # (response_text, model_name)
+        #
+        # Extract only the actual response for Discord.
+
+        if len(result) >= 1:
+            response = result[0]
+        else:
+            response = "I couldn't generate a response right now."
+
+        if len(result) >= 2:
+            model_name = result[1]
+
+    else:
+
+        response = result
+
+    # --------------------------------------------------------
+    # Convert response to clean text
     # --------------------------------------------------------
 
     if response is None:
@@ -246,6 +290,27 @@ async def process_ai_request_inner(
 
     if not isinstance(response, str):
         response = str(response)
+
+    response = response.strip()
+
+    if not response:
+        response = "I couldn't generate a response right now."
+
+    # --------------------------------------------------------
+    # Log model information
+    # --------------------------------------------------------
+
+    if model_name:
+        logger.info(
+            "Gemini response generated | model=%s | user=%s",
+            model_name,
+            user_id,
+        )
+    else:
+        logger.info(
+            "Gemini response generated | model=unknown | user=%s",
+            user_id,
+        )
 
     # --------------------------------------------------------
     # Record usage
@@ -277,7 +342,7 @@ async def process_ai_request_inner(
         logger.exception("Failed to save conversation memory.")
 
     # --------------------------------------------------------
-    # Send response
+    # Send clean response
     # --------------------------------------------------------
 
     await send_reply(
@@ -400,6 +465,7 @@ async def run_nova():
                 # Discord normally supplies retry_after.
                 # If it doesn't, use an increasing backoff
                 # so Render doesn't repeatedly hit Discord.
+
                 base_wait = (
                     retry_after
                     if retry_after is not None
