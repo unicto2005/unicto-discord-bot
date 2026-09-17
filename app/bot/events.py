@@ -26,6 +26,13 @@ class NOVAEvents(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
+        logger.info(
+            "📩 MESSAGE EVENT RECEIVED | author=%s | guild=%s | content=%r",
+            message.author,
+            message.guild,
+            message.content,
+        )
+
         # Ignore messages sent by bots.
         if message.author.bot:
             return
