@@ -1,10 +1,13 @@
 import asyncio
 
+import pytest
+
 from sqlalchemy import text
 
 from .db import engine
 
 
+@pytest.mark.asyncio
 async def test_connection():
     try:
         async with engine.connect() as connection:

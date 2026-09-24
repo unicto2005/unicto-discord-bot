@@ -447,8 +447,9 @@ async def process_ai_request_inner(
 
     try:
 
-        await usage_guard.record(
-            user_id
+        await usage_guard.record_usage(
+            user_id,
+            model_name,
         )
 
     except Exception:
